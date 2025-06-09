@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>3rd Shift Loading Performance</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f0f0f0;
+    padding: 20px;
+    zoom: 1.6; /* 10% zoom for better visibility */
+  }
+  h1 { margin-bottom: 10px; }
+  #date { font-size: 24px; margin-right: 20px; }
+  #clock { font-size: 24px; margin-right: 20px; }
+  #total-picks {
+    font-size: 18px;
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: #222;
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 5px;
+  }
+  label { margin-left: 10px; }
+  input[type="number"] { width: 50px; margin-left: 5px; }
+  .timeline-wrapper { overflow-x: auto; }
+  .timeline-container { min-width: max-content; position: relative; }
+  .timeline {
+    position: relative;
+    display: flex;
+    flex-wrap: nowrap;
+    height: auto;
+    border: 1px solid #ccc;
+    background: #fff;
+    margin-bottom: 0;
+  }
+  .block {
+    flex: 0 0 auto;
+    width: 90px;
+    height: 90px;
+    border-right: 1px solid #ccc;
+    position: relative;
+  }
+  .block:last-child { border-right: none; }
+  .block.break {
+    background-color: #000 !important;
+    color: #fff;
+    cursor: not-allowed;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .half-block {
+    height: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background-color: #e0e0e0;
+  }
+  .half-block.clicked { background-color: yellow !important; }
+  .half-block.completed { background-color: green !important; color: #fff; }
+  .time-indicator {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background-color: red;
+    z-index: 10;
+  }
+  .label-row {
+    display: flex;
+    flex-wrap: nowrap;
+    font-size: 14px;
+    margin-top: 5px;
+    margin-bottom: 30px;
+  }
+  .label-row span {
+    flex: 0 0 auto;
+    text-align: center;
+  }
+  button {
+    margin-top: 20px;
+    padding: 10px 15px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<h1>3rd Shift Loading Performance</h1>
+<div id="total-picks">Total Picks: 0</div>
+<div>
+  <span id="date"></span>
+  <span id="clock"></span>
+  <label for="taktTimeInput">Takt Time (min):</label>
+  <input type="number" id="taktTimeInput" value="6" min="1" />
+</div>
+
+<h2>
+  Driver/Loader
+  <select id="puller1Name">
+    <option value="">-- Select Driver/Loader --</option>
+    <option>Cameron C.</option>
+    <option>Edwardo B.</option>
+    <option>Logan M.</option>
+    <option>Sergio C.</option>
+    <option>Talan N.</option>
+    <option>Evan N.</option>
+  </select>
+</h2>
+
+<div class="timeline-wrapper">
+  <div class="timeline-container">
+    <div class="timeline" id="timeline1"></div>
+    <div class="time-indicator"></div>
+    <div class="label-row" id="labels1"></div>
+  </div>
+</div>
+
+<button onclick="downloadLogs()">Download Click Logs</button>
+<button onclick="location.reload()">Refresh Page</button>
+
+<script>
+  const startHour = 23, startMinute = 10, endHour = 7;
+  const breakTimes = [
+    { start: "02:00", end: "02:30" },
+    { start: "04:30", end: "04:50" },
+  ];
+  let intervalMinutes = 6;
+  const blockBaseWidth = 90;
+  let totalPicks = 0;
+
+  function toMinutes(timeStr) {
+    const [h, m] = timeStr.split(":").map(Number);
+    return h * 60 + m;
+  }
+
+  function clearTimelines() {
+    document.getElementById("timeline1").innerHTML = "";
+    document.getElementById("labels1").innerHTML = "";
+  }
+
+  function updateTotalPicksDisplay() {
+    document.getElementById("total-picks").textContent = "Total Picks: " + totalPicks;
+  }
+
+  function generateTimeline(timelineId, labelId) {
+    const timeline = document.getElementById(timelineId);
+    const labelRow = document.getElementById(labelId);
+    let currentMinutes = startHour * 60 + startMinute;
+    const endMinutes = (endHour + 24) * 60;
+
+    while (currentMinutes < endMinutes) {
+      const displayMinutes = currentMinutes % (24 * 60);
+      const breakBlock = breakTimes.find(b => displayMinutes === toMinutes(b.start));
+      if (breakBlock) {
+        const block = document.createElement("div");
+        block.classList.add("block", "break");
+        const width = ((toMinutes(breakBlock.end) - toMinutes(breakBlock.start)) / 6) * blockBaseWidth;
+        block.style.width = width + "px";
+        block.textContent = "Break";
+        timeline.appendChild(block);
+
+        const label = document.createElement("span");
+        label.style.width = width + "px";
+        label.textContent = `${breakBlock.start} - ${breakBlock.end}`;
+        labelRow.appendChild(label);
+
+        currentMinutes = currentMinutes - displayMinutes + toMinutes(breakBlock.end);
+        continue;
+      }
+
+      const upcomingBreak = breakTimes.find(b =>
+        toMinutes(b.start) - displayMinutes <= intervalMinutes &&
+        toMinutes(b.start) - displayMinutes > 0);
+      const timeUntilBreak = upcomingBreak ? toMinutes(upcomingBreak.start) - displayMinutes : 0;
+      let blockInterval = (timeUntilBreak === 2 || timeUntilBreak === 4) ? timeUntilBreak : intervalMinutes;
+      const width = (blockInterval / 6) * blockBaseWidth;
+
+      const block = document.createElement("div");
+      block.classList.add("block");
+      block.style.width = width + "px";
+
+      ["upper", "lower"].forEach(() => {
+        const half = document.createElement("div");
+        half.classList.add("half-block");
+        half.onclick = (e) => {
+          e.stopPropagation();
+          const now = new Date();
+          half.classList.add("clicked");
+          half.textContent = now.toLocaleTimeString();
+          totalPicks++;
+          updateTotalPicksDisplay();
+
+          const siblings = half.parentElement.querySelectorAll(".half-block");
+          const bothClicked = Array.from(siblings).every(h => h.classList.contains("clicked"));
+          if (bothClicked) {
+            siblings.forEach(h => {
+              h.classList.remove("clicked");
+              h.classList.add("completed");
+            });
+          }
+        };
+        block.appendChild(half);
+      });
+
+      timeline.appendChild(block);
+
+      const label = document.createElement("span");
+      label.style.width = width + "px";
+      const labelHour = Math.floor(displayMinutes / 60);
+      const labelMin = displayMinutes % 60;
+      const ampm = labelHour >= 12 ? "PM" : "AM";
+      const hour12 = labelHour % 12 === 0 ? 12 : labelHour % 12;
+      label.textContent = `${hour12}:${String(labelMin).padStart(2, "0")} ${ampm}`;
+      labelRow.appendChild(label);
+
+      currentMinutes += blockInterval;
+    }
+  }
+
+  function updateIndicators() {
+    const indicator = document.querySelector(".time-indicator");
+    const now = new Date();
+    const currentMinutesNow = now.getHours() * 60 + now.getMinutes();
+    const startMinutes = startHour * 60 + startMinute;
+    const totalMinutes = (endHour + 24) * 60 - startMinutes;
+    const elapsed = currentMinutesNow >= startMinutes
+      ? currentMinutesNow - startMinutes
+      : currentMinutesNow + 1440 - startMinutes;
+    const percent = (elapsed / totalMinutes) * 100;
+    indicator.style.left = elapsed >= 0 && elapsed <= totalMinutes ? percent + "%" : "-10px";
+    scrollToCurrentTimeIndicator();
+  }
+
+  function scrollToCurrentTimeIndicator() {
+    const wrapper = document.querySelector(".timeline-wrapper");
+    const indicator = document.querySelector(".time-indicator");
+    if (indicator && indicator.style.left !== "-10px") {
+      const indicatorX = indicator.offsetLeft;
+      const wrapperWidth = wrapper.clientWidth;
+      const targetScrollLeft = indicatorX - wrapperWidth / 2;
+      setTimeout(() => {
+        wrapper.scrollTo({ left: targetScrollLeft, behavior: "smooth" });
+      }, 100);
+    }
+  }
+
+  document.getElementById("taktTimeInput").addEventListener("change", () => {
+    intervalMinutes = parseInt(document.getElementById("taktTimeInput").value);
+    clearTimelines();
+    generateTimeline("timeline1", "labels1");
+    updateIndicators();
+  });
+
+  function updateClock() {
+    const now = new Date();
+    document.getElementById("date").textContent = now.toLocaleDateString();
+    document.getElementById("clock").textContent = now.toLocaleTimeString();
+  }
+
+  setInterval(updateClock, 1000);
+  setInterval(updateIndicators, 60000);
+  updateClock();
+  generateTimeline("timeline1", "labels1");
+  updateIndicators();
+
+  function downloadLogs() {
+    const now = new Date();
+    const dateString = now.toISOString().split("T")[0];
+    let csv = "Section,Driver/Loader,Time Clicked\n";
+    const driverLoaderName = document.getElementById("puller1Name").value || "N/A";
+    const timeline = document.getElementById("timeline1");
+    const halfBlocks = timeline.querySelectorAll(".half-block");
+    halfBlocks.forEach(half => {
+      if (half.classList.contains("clicked") || half.classList.contains("completed")) {
+        csv += `timeline1,${driverLoaderName},${half.textContent}\n`;
+      }
+    });
+    const blob = new Blob([csv], { type: "text/csv" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `click_logs_${dateString}.csv`;
+    link.click();
+  }
+
+  window.addEventListener("beforeunload", function (e) {
+    e.preventDefault();
+    e.returnValue = "";
+  });
+
+  const autoDownloadTimes = ["02:00", "04:30", "07:00"];
+  function checkAutoDownload() {
+    const now = new Date();
+    const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    if (autoDownloadTimes.includes(currentTime)) {
+      downloadLogs();
+    }
+  }
+  setInterval(checkAutoDownload, 60000);
+</script>
+</body>
+</html>
